@@ -105,6 +105,7 @@ Use `/Users/niek/Documents/Code/uber/uber.csv` unless noted otherwise.
 ## Developer Notes
 - Keep dependencies minimal and client-only.
 - Prefer Bulma utility/components before custom CSS.
+- Use Conventional Commits for all commit messages (for example: `feat: add daily summary cards`).
 - If adding new data transforms, preserve:
   - day order: newest -> oldest
   - trip order inside day: oldest -> newest
