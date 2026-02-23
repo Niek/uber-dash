@@ -14,8 +14,8 @@ The app is designed to work without a backend and with minimal dependencies, so 
 
 ## Tech Stack
 - Plain HTML + JavaScript (no framework)
-- [Bulma](https://bulma.io/) for styling (built-in classes only)
-- [Leaflet](https://leafletjs.com/) + OpenStreetMap tiles for map rendering
+- [Bulma](https://bulma.io/) 1.0.4 via Cloudflare CDN for styling (built-in classes only)
+- [Leaflet](https://leafletjs.com/) 1.9.4 via Cloudflare CDN + OpenStreetMap tiles for map rendering
 - Photon (komoot) geocoding API for address-to-coordinate lookup
 - OSRM public API for road-route geometry lookup
 
