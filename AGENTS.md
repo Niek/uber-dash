@@ -23,6 +23,9 @@ The app is designed to work without a backend and with minimal dependencies, so 
 - `/Users/niek/Documents/Code/uber/app.js`: CSV parsing, data model, dashboard rendering, map rendering, interactivity.
 - `/Users/niek/Documents/Code/uber/uber.csv`: sample data file for local testing.
 
+## Deployment
+- Live URL: https://niek.github.io/uber-dash/
+
 ## Core Features
 1. CSV ingestion
 - File input and drag-and-drop upload.
