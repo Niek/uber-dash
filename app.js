@@ -3,10 +3,14 @@ const state = {
   selectedDay: null,
   isDarkMode: false,
   map: null,
+  mapBaseLayer: null,
+  mapDimLayer: null,
   mapLayer: null,
   mapRenderId: 0,
   geocodeCache: new Map(),
   geocodeInFlight: new Map(),
+  routeCache: new Map(),
+  routeInFlight: new Map(),
   failedGeocodeQueries: new Set(),
   tripRows: new Map(),
   tripMapLayers: new Map(),
@@ -88,6 +92,13 @@ const DROPOFF_HIGHLIGHT_STYLE = {
 };
 
 const GEOCODE_CONCURRENCY = 2;
+const ROUTE_LOOKUP_CONCURRENCY = 3;
+const MAP_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const MAP_TILE_OPTIONS = {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19,
+};
+const MAP_DIM_BOUNDS = [[-90, -360], [90, 360]];
 
 setupFileHandlers();
 setupTheme();
@@ -119,6 +130,7 @@ function applyTheme(isDarkMode) {
   dom.appRoot.classList.toggle("has-background-white-bis", !state.isDarkMode);
 
   applyThemeToCurrentDom();
+  updateMapDimOverlayForTheme();
 }
 
 function applyThemeToCurrentDom() {
@@ -608,12 +620,12 @@ async function renderDayMap(day) {
 
   if (!state.map) {
     state.map = L.map("map", { preferCanvas: true });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-    }).addTo(state.map);
+    ensureMapBaseLayer();
     state.map.setView([20, 0], 2);
   }
+
+  ensureMapBaseLayer();
+  updateMapDimOverlayForTheme();
 
   if (state.mapLayer) {
     state.mapLayer.remove();
@@ -633,7 +645,14 @@ async function renderDayMap(day) {
       return;
     }
 
-    const bounds = [];
+    const routeLookup = buildDayRouteLookup(day, locationByAddressKey);
+    setMapLoading(true, `Mapping routes... (${routeLookup.size} unique route lookups)`);
+    const routeByKey = await lookupDayRoutes(routeLookup, renderId);
+    if (state.mapRenderId !== renderId) {
+      return;
+    }
+
+    const bounds = L.latLngBounds([]);
     let plottedTrips = 0;
 
     for (const trip of day.trips) {
@@ -652,16 +671,20 @@ async function renderDayMap(day) {
 
       const fromLatLng = L.latLng(fromPoint.lat, fromPoint.lon);
       const toLatLng = L.latLng(toPoint.lat, toPoint.lon);
-      const midpoint = L.latLng(
-        (fromLatLng.lat + toLatLng.lat) / 2,
-        (fromLatLng.lng + toLatLng.lng) / 2,
-      );
+      const routeLookupKey = buildRouteLookupKey(fromPoint, toPoint);
+      const routePoints = routeByKey.get(routeLookupKey) || null;
+      const routeLatLngs = Array.isArray(routePoints) && routePoints.length >= 2
+        ? routePoints.map((point) => L.latLng(point.lat, point.lon))
+        : [fromLatLng, toLatLng];
+      const midpoint = getRouteMidpoint(routeLatLngs, fromLatLng, toLatLng);
       const tripNumber = state.tripNumberById.get(trip.id) || plottedTrips + 1;
 
-      bounds.push(fromLatLng, toLatLng);
+      routeLatLngs.forEach((point) => {
+        bounds.extend(point);
+      });
       plottedTrips += 1;
 
-      const route = L.polyline([fromLatLng, toLatLng], {
+      const route = L.polyline(routeLatLngs, {
         ...ROUTE_STYLE,
       }).bindPopup(`
         <strong>${escapeHtml(trip.service)}</strong><br>
@@ -715,7 +738,7 @@ async function renderDayMap(day) {
 
     layer.addTo(state.map);
 
-    if (bounds.length > 0) {
+    if (bounds.isValid()) {
       state.map.fitBounds(bounds, { padding: [30, 30] });
       setStatus(`Showing ${plottedTrips} of ${day.trips.length} trip route(s) for ${formatDay(day.dateKey)}.`, "success");
     } else {
@@ -735,6 +758,50 @@ function setMapLoading(isLoading, message = "Mapping routes...") {
   }
   if (dom.mapLoading) {
     dom.mapLoading.classList.toggle("is-hidden", !isLoading);
+  }
+}
+
+function ensureMapBaseLayer() {
+  if (!state.map) {
+    return;
+  }
+
+  if (state.mapBaseLayer) {
+    return;
+  }
+
+  state.mapBaseLayer = L.tileLayer(MAP_TILE_URL, MAP_TILE_OPTIONS).addTo(state.map);
+}
+
+function updateMapDimOverlayForTheme() {
+  if (!state.map) {
+    return;
+  }
+
+  if (state.isDarkMode) {
+    if (!state.mapDimLayer) {
+      const dimPane = state.map.getPane("mapDimPane") || state.map.createPane("mapDimPane");
+      dimPane.style.zIndex = "250";
+      dimPane.style.pointerEvents = "none";
+
+      state.mapDimLayer = L.rectangle(MAP_DIM_BOUNDS, {
+        pane: "mapDimPane",
+        stroke: false,
+        fill: true,
+        fillColor: "#000000",
+        fillOpacity: 0.35,
+        interactive: false,
+      });
+    }
+
+    if (!state.map.hasLayer(state.mapDimLayer)) {
+      state.mapDimLayer.addTo(state.map);
+    }
+    return;
+  }
+
+  if (state.mapDimLayer && state.map.hasLayer(state.mapDimLayer)) {
+    state.map.removeLayer(state.mapDimLayer);
   }
 }
 
@@ -781,6 +848,168 @@ function buildAddressLookupKey(address, city = "") {
   const addressPart = String(address || "").replace(/\s+/g, " ").trim();
   const cityPart = String(city || "").replace(/\s+/g, " ").trim();
   return `${addressPart}||${cityPart}`.toLowerCase();
+}
+
+function buildDayRouteLookup(day, locationByAddressKey) {
+  const byKey = new Map();
+
+  for (const trip of day.trips) {
+    const fromAddressKey = buildAddressLookupKey(trip.pickup, trip.city);
+    const toAddressKey = buildAddressLookupKey(trip.dropoff, trip.city);
+    const fromPoint = locationByAddressKey.get(fromAddressKey) || null;
+    const toPoint = locationByAddressKey.get(toAddressKey) || null;
+
+    if (!fromPoint || !toPoint) {
+      continue;
+    }
+
+    const routeLookupKey = buildRouteLookupKey(fromPoint, toPoint);
+    if (!routeLookupKey || byKey.has(routeLookupKey)) {
+      continue;
+    }
+
+    byKey.set(routeLookupKey, { fromPoint, toPoint });
+  }
+
+  return byKey;
+}
+
+async function lookupDayRoutes(routeLookup, renderId) {
+  const keys = [...routeLookup.keys()];
+  const values = await mapWithConcurrency(keys, ROUTE_LOOKUP_CONCURRENCY, async (key) => {
+    if (state.mapRenderId !== renderId) {
+      return null;
+    }
+
+    const entry = routeLookup.get(key);
+    if (!entry) {
+      return null;
+    }
+
+    return getRouteGeometry(entry.fromPoint, entry.toPoint);
+  });
+
+  return new Map(keys.map((key, index) => [key, values[index] || null]));
+}
+
+function buildRouteLookupKey(fromPoint, toPoint) {
+  if (!fromPoint || !toPoint) {
+    return "";
+  }
+
+  const fromLon = Number.parseFloat(fromPoint.lon);
+  const fromLat = Number.parseFloat(fromPoint.lat);
+  const toLon = Number.parseFloat(toPoint.lon);
+  const toLat = Number.parseFloat(toPoint.lat);
+
+  if (![fromLon, fromLat, toLon, toLat].every(Number.isFinite)) {
+    return "";
+  }
+
+  return `${fromLon.toFixed(5)},${fromLat.toFixed(5)}->${toLon.toFixed(5)},${toLat.toFixed(5)}`;
+}
+
+function getRouteMidpoint(routeLatLngs, fromLatLng, toLatLng) {
+  if (Array.isArray(routeLatLngs) && routeLatLngs.length > 0) {
+    return routeLatLngs[Math.floor(routeLatLngs.length / 2)];
+  }
+
+  return L.latLng(
+    (fromLatLng.lat + toLatLng.lat) / 2,
+    (fromLatLng.lng + toLatLng.lng) / 2,
+  );
+}
+
+function getRouteGeometry(fromPoint, toPoint) {
+  const routeKey = buildRouteLookupKey(fromPoint, toPoint);
+  if (!routeKey) {
+    return Promise.resolve(null);
+  }
+
+  if (state.routeCache.has(routeKey)) {
+    return Promise.resolve(state.routeCache.get(routeKey));
+  }
+
+  const inFlight = state.routeInFlight.get(routeKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = fetchOsrmRoute(fromPoint, toPoint)
+    .then((routePoints) => {
+      const normalized = Array.isArray(routePoints) && routePoints.length >= 2 ? routePoints : null;
+      state.routeCache.set(routeKey, normalized);
+      return normalized;
+    })
+    .catch(() => {
+      state.routeCache.set(routeKey, null);
+      return null;
+    })
+    .finally(() => {
+      state.routeInFlight.delete(routeKey);
+    });
+
+  state.routeInFlight.set(routeKey, request);
+  return request;
+}
+
+async function fetchOsrmRoute(fromPoint, toPoint) {
+  const fromLon = Number.parseFloat(fromPoint?.lon);
+  const fromLat = Number.parseFloat(fromPoint?.lat);
+  const toLon = Number.parseFloat(toPoint?.lon);
+  const toLat = Number.parseFloat(toPoint?.lat);
+
+  if (![fromLon, fromLat, toLon, toLat].every(Number.isFinite)) {
+    return null;
+  }
+
+  const url = new URL(`https://router.project-osrm.org/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}`);
+  url.searchParams.set("overview", "full");
+  url.searchParams.set("geometries", "geojson");
+  url.searchParams.set("alternatives", "false");
+  url.searchParams.set("steps", "false");
+
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    if (data?.code !== "Ok") {
+      return null;
+    }
+
+    const coordinates = data?.routes?.[0]?.geometry?.coordinates;
+    if (!Array.isArray(coordinates) || coordinates.length < 2) {
+      return null;
+    }
+
+    const routePoints = coordinates
+      .map((point) => {
+        if (!Array.isArray(point) || point.length < 2) {
+          return null;
+        }
+
+        const lon = Number.parseFloat(point[0]);
+        const lat = Number.parseFloat(point[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          return null;
+        }
+
+        return { lat, lon };
+      })
+      .filter(Boolean);
+
+    return routePoints.length >= 2 ? routePoints : null;
+  } catch {
+    return null;
+  }
 }
 
 function createTripNumberIcon(number, highlighted) {
