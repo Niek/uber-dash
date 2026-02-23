@@ -18,8 +18,8 @@ A fast, client-side dashboard to upload your Uber CSV report, explore daily spen
 [https://niek.github.io/uber-dash/](https://niek.github.io/uber-dash/)
 
 ## 🛠️ Tech
-- Bulma 1.0.4 (Cloudflare CDN)
-- Leaflet 1.9.4 (Cloudflare CDN) + OpenStreetMap tiles
+- Bulma (Cloudflare CDN)
+- Leaflet (Cloudflare CDN) + OpenStreetMap tiles
 - Photon geocoding API
 - OSRM routing API
 - Vanilla JavaScript (no framework)
