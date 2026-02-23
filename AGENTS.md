@@ -17,6 +17,7 @@ The app is designed to work without a backend and with minimal dependencies, so 
 - [Bulma](https://bulma.io/) for styling (built-in classes only)
 - [Leaflet](https://leafletjs.com/) + OpenStreetMap tiles for map rendering
 - Photon (komoot) geocoding API for address-to-coordinate lookup
+- OSRM public API for road-route geometry lookup
 
 ## File Layout
 - `/Users/niek/Documents/Code/uber/index.html`: SPA layout and dependency includes.
@@ -47,7 +48,7 @@ The app is designed to work without a backend and with minimal dependencies, so 
 - Numbered trips (`#`) for easy map/table cross-reference.
 
 5. Map visualization
-- Plots each trip as pickup marker, drop-off marker, and connecting polyline.
+- Plots each trip as pickup marker, drop-off marker, and route polyline (OSRM road route when available).
 - Adds a numbered marker per trip.
 - Fits map bounds to visible plotted trips.
 
@@ -63,10 +64,10 @@ The app is designed to work without a backend and with minimal dependencies, so 
 
 ## Current Limitations
 - Geocoding quality depends on Photon and address quality; some routes may not be plottable.
-- Polylines are straight lines between pickup and drop-off (not turn-by-turn road routes).
+- Route geometry depends on OSRM availability; when unavailable, map falls back to straight pickup-to-drop-off polylines.
 - CSV format assumptions are based on Uber export columns currently present in sample data.
 - No automated test suite is set up; validation is manual.
-- Requires network access for map tiles and Photon geocoding.
+- Requires network access for map tiles, Photon geocoding, and OSRM routing.
 
 ## Manual Test Plan
 Use `/Users/niek/Documents/Code/uber/uber.csv` unless noted otherwise.
@@ -101,6 +102,8 @@ Use `/Users/niek/Documents/Code/uber/uber.csv` unless noted otherwise.
 7. Geocoding/map checks
 - Confirm map fits to visible trips when geocoding succeeds.
 - Confirm partial plotting behavior when some addresses fail geocoding.
+- Confirm routes follow roads when OSRM returns geometry.
+- Confirm straight-line fallback is used when routing geometry is unavailable.
 
 8. Basic robustness
 - Upload an invalid CSV and confirm user-facing error appears.
