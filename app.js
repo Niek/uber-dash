@@ -5,8 +5,8 @@ const state = {
   map: null,
   mapLayer: null,
   mapRenderId: 0,
-  geocodeCache: loadGeocodeCache(),
-  geocodeQueue: Promise.resolve(),
+  geocodeCache: new Map(),
+  geocodeInFlight: new Map(),
   failedGeocodeQueries: new Set(),
   tripRows: new Map(),
   tripMapLayers: new Map(),
@@ -26,6 +26,8 @@ const dom = {
   selectedDayTitle: document.getElementById("selectedDayTitle"),
   selectedDayMeta: document.getElementById("selectedDayMeta"),
   daySummary: document.getElementById("daySummary"),
+  mapLoading: document.getElementById("mapLoading"),
+  mapLoadingText: document.getElementById("mapLoadingText"),
   dayTrips: document.getElementById("dayTrips"),
   map: document.getElementById("map"),
 };
@@ -84,6 +86,8 @@ const DROPOFF_HIGHLIGHT_STYLE = {
   fillColor: "#ffdd57",
   fillOpacity: 1,
 };
+
+const GEOCODE_CONCURRENCY = 2;
 
 setupFileHandlers();
 setupTheme();
@@ -619,97 +623,164 @@ async function renderDayMap(day) {
   state.mapLayer = layer;
   state.tripMapLayers.clear();
 
-  setStatus("Resolving addresses for map...", "info");
+  const addressLookup = buildDayAddressLookup(day);
+  setMapLoading(true, `Mapping routes... (${addressLookup.size} unique addresses)`);
+  setStatus(`Resolving ${addressLookup.size} unique address(es) for map...`, "info");
 
-  const bounds = [];
-  let plottedTrips = 0;
-
-  for (const trip of day.trips) {
+  try {
+    const locationByAddressKey = await geocodeDayAddresses(addressLookup, renderId);
     if (state.mapRenderId !== renderId) {
       return;
     }
 
-    const [fromPoint, toPoint] = await Promise.all([
-      geocodeAddress(trip.pickup, trip.city),
-      geocodeAddress(trip.dropoff, trip.city),
-    ]);
+    const bounds = [];
+    let plottedTrips = 0;
 
-    if (!fromPoint || !toPoint) {
-      continue;
+    for (const trip of day.trips) {
+      if (state.mapRenderId !== renderId) {
+        return;
+      }
+
+      const fromAddressKey = buildAddressLookupKey(trip.pickup, trip.city);
+      const toAddressKey = buildAddressLookupKey(trip.dropoff, trip.city);
+      const fromPoint = locationByAddressKey.get(fromAddressKey) || null;
+      const toPoint = locationByAddressKey.get(toAddressKey) || null;
+
+      if (!fromPoint || !toPoint) {
+        continue;
+      }
+
+      const fromLatLng = L.latLng(fromPoint.lat, fromPoint.lon);
+      const toLatLng = L.latLng(toPoint.lat, toPoint.lon);
+      const midpoint = L.latLng(
+        (fromLatLng.lat + toLatLng.lat) / 2,
+        (fromLatLng.lng + toLatLng.lng) / 2,
+      );
+      const tripNumber = state.tripNumberById.get(trip.id) || plottedTrips + 1;
+
+      bounds.push(fromLatLng, toLatLng);
+      plottedTrips += 1;
+
+      const route = L.polyline([fromLatLng, toLatLng], {
+        ...ROUTE_STYLE,
+      }).bindPopup(`
+        <strong>${escapeHtml(trip.service)}</strong><br>
+        Trip #${tripNumber}<br>
+        ${escapeHtml(trip.time)}<br>
+        ${escapeHtml(formatCurrency(trip.totalEur, "EUR"))}
+      `).addTo(layer);
+
+      const pickupMarker = L.circleMarker(fromLatLng, {
+        ...PICKUP_STYLE,
+      }).bindPopup(`<strong>Trip #${tripNumber} Pickup</strong><br>${escapeHtml(trip.pickup)}`).addTo(layer);
+
+      const dropoffMarker = L.circleMarker(toLatLng, {
+        ...DROPOFF_STYLE,
+      }).bindPopup(`<strong>Trip #${tripNumber} Drop-off</strong><br>${escapeHtml(trip.dropoff)}`).addTo(layer);
+
+      const numberMarker = L.marker(midpoint, {
+        icon: createTripNumberIcon(tripNumber, false),
+        keyboard: false,
+        title: `Trip #${tripNumber}`,
+      }).bindPopup(`
+        <strong>Trip #${tripNumber}</strong><br>
+        ${escapeHtml(trip.pickup)}<br>
+        to<br>
+        ${escapeHtml(trip.dropoff)}
+      `).addTo(layer);
+
+      [route, pickupMarker, dropoffMarker, numberMarker].forEach((mapLayerItem) => {
+        mapLayerItem.on("mouseover", () => {
+          setHoveredTrip(trip.id);
+        });
+        mapLayerItem.on("mouseout", () => {
+          if (state.hoveredTripId === trip.id) {
+            setHoveredTrip(null);
+          }
+        });
+      });
+
+      state.tripMapLayers.set(trip.id, {
+        number: tripNumber,
+        route,
+        pickupMarker,
+        dropoffMarker,
+        numberMarker,
+      });
+
+      if (state.hoveredTripId === trip.id) {
+        applyTripHighlight(trip.id, true);
+      }
     }
 
-    const fromLatLng = L.latLng(fromPoint.lat, fromPoint.lon);
-    const toLatLng = L.latLng(toPoint.lat, toPoint.lon);
-    const midpoint = L.latLng(
-      (fromLatLng.lat + toLatLng.lat) / 2,
-      (fromLatLng.lng + toLatLng.lng) / 2,
-    );
-    const tripNumber = state.tripNumberById.get(trip.id) || plottedTrips + 1;
+    layer.addTo(state.map);
 
-    bounds.push(fromLatLng, toLatLng);
-    plottedTrips += 1;
+    if (bounds.length > 0) {
+      state.map.fitBounds(bounds, { padding: [30, 30] });
+      setStatus(`Showing ${plottedTrips} of ${day.trips.length} trip route(s) for ${formatDay(day.dateKey)}.`, "success");
+    } else {
+      state.map.setView([20, 0], 2);
+      setStatus("Could not geocode enough addresses to plot this day.", "warning");
+    }
+  } finally {
+    if (state.mapRenderId === renderId) {
+      setMapLoading(false);
+    }
+  }
+}
 
-    const route = L.polyline([fromLatLng, toLatLng], {
-      ...ROUTE_STYLE,
-    }).bindPopup(`
-      <strong>${escapeHtml(trip.service)}</strong><br>
-      Trip #${tripNumber}<br>
-      ${escapeHtml(trip.time)}<br>
-      ${escapeHtml(formatCurrency(trip.totalEur, "EUR"))}
-    `).addTo(layer);
+function setMapLoading(isLoading, message = "Mapping routes...") {
+  if (dom.mapLoadingText) {
+    dom.mapLoadingText.textContent = message;
+  }
+  if (dom.mapLoading) {
+    dom.mapLoading.classList.toggle("is-hidden", !isLoading);
+  }
+}
 
-    const pickupMarker = L.circleMarker(fromLatLng, {
-      ...PICKUP_STYLE,
-    }).bindPopup(`<strong>Trip #${tripNumber} Pickup</strong><br>${escapeHtml(trip.pickup)}`).addTo(layer);
+function buildDayAddressLookup(day) {
+  const byKey = new Map();
 
-    const dropoffMarker = L.circleMarker(toLatLng, {
-      ...DROPOFF_STYLE,
-    }).bindPopup(`<strong>Trip #${tripNumber} Drop-off</strong><br>${escapeHtml(trip.dropoff)}`).addTo(layer);
+  for (const trip of day.trips) {
+    const entries = [
+      { address: trip.pickup, city: trip.city },
+      { address: trip.dropoff, city: trip.city },
+    ];
 
-    const numberMarker = L.marker(midpoint, {
-      icon: createTripNumberIcon(tripNumber, false),
-      keyboard: false,
-      title: `Trip #${tripNumber}`,
-    }).bindPopup(`
-      <strong>Trip #${tripNumber}</strong><br>
-      ${escapeHtml(trip.pickup)}<br>
-      to<br>
-      ${escapeHtml(trip.dropoff)}
-    `).addTo(layer);
-
-    [route, pickupMarker, dropoffMarker, numberMarker].forEach((mapLayerItem) => {
-      mapLayerItem.on("mouseover", () => {
-        setHoveredTrip(trip.id);
-      });
-      mapLayerItem.on("mouseout", () => {
-        if (state.hoveredTripId === trip.id) {
-          setHoveredTrip(null);
-        }
-      });
-    });
-
-    state.tripMapLayers.set(trip.id, {
-      number: tripNumber,
-      route,
-      pickupMarker,
-      dropoffMarker,
-      numberMarker,
-    });
-
-    if (state.hoveredTripId === trip.id) {
-      applyTripHighlight(trip.id, true);
+    for (const entry of entries) {
+      const key = buildAddressLookupKey(entry.address, entry.city);
+      if (!key || byKey.has(key)) {
+        continue;
+      }
+      byKey.set(key, entry);
     }
   }
 
-  layer.addTo(state.map);
+  return byKey;
+}
 
-  if (bounds.length > 0) {
-    state.map.fitBounds(bounds, { padding: [30, 30] });
-    setStatus(`Showing ${plottedTrips} of ${day.trips.length} trip route(s) for ${formatDay(day.dateKey)}.`, "success");
-  } else {
-    state.map.setView([20, 0], 2);
-    setStatus("Could not geocode enough addresses to plot this day.", "warning");
-  }
+async function geocodeDayAddresses(addressLookup, renderId) {
+  const keys = [...addressLookup.keys()];
+  const values = await mapWithConcurrency(keys, GEOCODE_CONCURRENCY, async (key) => {
+    if (state.mapRenderId !== renderId) {
+      return null;
+    }
+
+    const entry = addressLookup.get(key);
+    if (!entry) {
+      return null;
+    }
+
+    return geocodeAddress(entry.address, entry.city);
+  });
+
+  return new Map(keys.map((key, index) => [key, values[index] || null]));
+}
+
+function buildAddressLookupKey(address, city = "") {
+  const addressPart = String(address || "").replace(/\s+/g, " ").trim();
+  const cityPart = String(city || "").replace(/\s+/g, " ").trim();
+  return `${addressPart}||${cityPart}`.toLowerCase();
 }
 
 function createTripNumberIcon(number, highlighted) {
@@ -781,32 +852,57 @@ function geocodeAddress(address, city = "") {
     }
   }
 
-  state.geocodeQueue = state.geocodeQueue.then(async () => {
-    for (const candidate of candidates) {
-      if (state.failedGeocodeQueries.has(candidate)) {
-        continue;
-      }
+  return findLocationForCandidates(candidates);
+}
 
-      const location = await fetchGeocode(candidate);
+async function findLocationForCandidates(candidates) {
+  for (const candidate of candidates) {
+    if (state.failedGeocodeQueries.has(candidate)) {
+      continue;
+    }
+
+    const inFlight = state.geocodeInFlight.get(candidate);
+    if (inFlight) {
+      const location = await inFlight;
       if (location) {
         for (const item of candidates) {
           state.geocodeCache.set(item, location);
         }
-        saveGeocodeCache(state.geocodeCache);
         return location;
       }
-
-      state.failedGeocodeQueries.add(candidate);
+      continue;
     }
-    return null;
-  }).catch(() => null);
 
-  return state.geocodeQueue;
+    const request = fetchGeocode(candidate)
+      .then((location) => {
+        if (location) {
+          state.geocodeCache.set(candidate, location);
+          return location;
+        }
+        state.failedGeocodeQueries.add(candidate);
+        return null;
+      })
+      .catch(() => null)
+      .finally(() => {
+        state.geocodeInFlight.delete(candidate);
+      });
+
+    state.geocodeInFlight.set(candidate, request);
+
+    const location = await request;
+    if (location) {
+      for (const item of candidates) {
+        state.geocodeCache.set(item, location);
+      }
+      return location;
+    }
+  }
+
+  return null;
 }
 
 async function fetchGeocode(query) {
-  const url = new URL("https://nominatim.openstreetmap.org/search");
-  url.searchParams.set("format", "jsonv2");
+  const url = new URL("https://photon.komoot.io/api/");
   url.searchParams.set("limit", "1");
   url.searchParams.set("q", query);
 
@@ -822,22 +918,25 @@ async function fetchGeocode(query) {
     }
 
     const results = await response.json();
-    if (!Array.isArray(results) || results.length === 0) {
+    const firstFeature = Array.isArray(results?.features) ? results.features[0] : null;
+    const coordinates = firstFeature?.geometry?.coordinates;
+    if (!Array.isArray(coordinates) || coordinates.length < 2) {
       return null;
     }
 
+    const lon = Number.parseFloat(coordinates[0]);
+    const lat = Number.parseFloat(coordinates[1]);
     const location = {
-      lat: Number.parseFloat(results[0].lat),
-      lon: Number.parseFloat(results[0].lon),
+      lat,
+      lon,
     };
 
     if (Number.isFinite(location.lat) && Number.isFinite(location.lon)) {
       return location;
     }
     return null;
-  } finally {
-    // Keep requests polite for public Nominatim instances.
-    await wait(1100);
+  } catch {
+    return null;
   }
 }
 
@@ -847,20 +946,40 @@ function buildGeocodeCandidates(address, city) {
   const fullQuery = [addressPart, cityPart].filter(Boolean).join(", ");
   const asciiAddress = addressPart.replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
   const dashParts = asciiAddress.split(" - ").map((part) => part.trim()).filter(Boolean);
-  const commaParts = asciiAddress.split(",").map((part) => part.trim()).filter(Boolean);
+  const firstDash = dashParts[0] || asciiAddress;
+  const commaParts = firstDash.split(",").map((part) => part.trim()).filter(Boolean);
+  const commaPrefixes = buildCommaPrefixes(commaParts, 4);
+  const commaWithCity = commaPrefixes.map((prefix) => [prefix, cityPart].filter(Boolean).join(", "));
 
-  const firstDash = dashParts[0] || "";
-  const firstComma = commaParts[0] || "";
-  const shortAddress = [firstDash || firstComma, cityPart].filter(Boolean).join(", ");
+  const shortAddress = commaPrefixes.length > 0 ? [commaPrefixes[0], cityPart].filter(Boolean).join(", ") : "";
+  const mediumAddress = commaPrefixes.length > 1 ? [commaPrefixes[1], cityPart].filter(Boolean).join(", ") : "";
 
   return uniqueNonEmpty([
     fullQuery,
-    addressPart,
+    [asciiAddress, cityPart].filter(Boolean).join(", "),
     asciiAddress,
     shortAddress,
+    mediumAddress,
+    [firstDash, cityPart].filter(Boolean).join(", "),
     firstDash,
-    [firstComma, cityPart].filter(Boolean).join(", "),
+    ...commaWithCity,
+    ...commaPrefixes,
   ]);
+}
+
+function buildCommaPrefixes(parts, maxParts = 4) {
+  if (!Array.isArray(parts) || parts.length === 0) {
+    return [];
+  }
+
+  const capped = parts.slice(0, maxParts);
+  const prefixes = [];
+
+  for (let length = capped.length; length >= 1; length -= 1) {
+    prefixes.push(capped.slice(0, length).join(", "));
+  }
+
+  return prefixes;
 }
 
 function uniqueNonEmpty(values) {
@@ -879,37 +998,25 @@ function uniqueNonEmpty(values) {
   return output;
 }
 
-function loadGeocodeCache() {
-  try {
-    const value = localStorage.getItem("uber-trip-geocode-cache");
-    if (!value) {
-      return new Map();
-    }
-
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      return new Map();
-    }
-
-    return new Map(parsed);
-  } catch {
-    return new Map();
+async function mapWithConcurrency(items, concurrency, mapper) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [];
   }
-}
 
-function saveGeocodeCache(cache) {
-  try {
-    const serialized = JSON.stringify([...cache.entries()]);
-    localStorage.setItem("uber-trip-geocode-cache", serialized);
-  } catch {
-    // Ignore storage errors.
+  const effectiveConcurrency = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
   }
-}
 
-function wait(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  await Promise.all(Array.from({ length: effectiveConcurrency }, () => worker()));
+  return results;
 }
 
 function formatDay(dateKey) {

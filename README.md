@@ -20,6 +20,7 @@ A fast, client-side dashboard to upload your Uber CSV report, explore daily spen
 ## 🛠️ Tech
 - Bulma
 - Leaflet + OpenStreetMap
+- Photon geocoding API
 - Vanilla JavaScript (no framework)
 
 ## 🚀 Run Locally
@@ -28,5 +29,5 @@ A fast, client-side dashboard to upload your Uber CSV report, explore daily spen
 3. Pick a day and explore spend + routes.
 
 ## 📌 Notes
-- Geocoding depends on OpenStreetMap Nominatim, so some addresses may not resolve perfectly.
+- Geocoding depends on Photon and address quality, so some addresses may not resolve perfectly.
 - Routes are straight pickup-to-dropoff lines (not turn-by-turn navigation).

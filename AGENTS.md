@@ -16,7 +16,7 @@ The app is designed to work without a backend and with minimal dependencies, so 
 - Plain HTML + JavaScript (no framework)
 - [Bulma](https://bulma.io/) for styling (built-in classes only)
 - [Leaflet](https://leafletjs.com/) + OpenStreetMap tiles for map rendering
-- Nominatim geocoding API for address-to-coordinate lookup
+- Photon (komoot) geocoding API for address-to-coordinate lookup
 
 ## File Layout
 - `/Users/niek/Documents/Code/uber/index.html`: SPA layout and dependency includes.
@@ -56,16 +56,17 @@ The app is designed to work without a backend and with minimal dependencies, so 
 - Hovering map route/markers highlights the corresponding table row.
 
 7. Geocoding behavior
-- Uses Nominatim with conservative request pacing.
-- Caches successful geocodes in `localStorage` to speed subsequent renders.
+- Uses Photon (`https://photon.komoot.io/api/`) for geocoding.
+- Resolves unique addresses per selected day with bounded parallel requests.
+- Keeps geocode cache in memory only for the active session (no `localStorage`).
 - Uses fallback query simplification for difficult address formats.
 
 ## Current Limitations
-- Geocoding quality depends on Nominatim and address quality; some routes may not be plottable.
+- Geocoding quality depends on Photon and address quality; some routes may not be plottable.
 - Polylines are straight lines between pickup and drop-off (not turn-by-turn road routes).
 - CSV format assumptions are based on Uber export columns currently present in sample data.
 - No automated test suite is set up; validation is manual.
-- Requires network access for map tiles and geocoding.
+- Requires network access for map tiles and Photon geocoding.
 
 ## Manual Test Plan
 Use `/Users/niek/Documents/Code/uber/uber.csv` unless noted otherwise.
