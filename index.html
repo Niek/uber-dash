@@ -1,20 +1,27 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description"
+    content="Client-side dashboard for analyzing Uber Trips CSV exports with daily metrics and route maps.">
   <title>Uber Trips Dashboard</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/1.0.4/css/bulma.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 </head>
+
 <body>
-  <section id="appRoot" class="section">
+  <main id="appRoot" class="section">
     <div class="container">
       <h1 class="title">Uber Trips Dashboard</h1>
       <p class="subtitle">Upload your Uber trips CSV to explore daily activity and routes.</p>
 
-      <div id="dropZone" class="box has-text-centered has-background-white">
-        <p class="mb-4">Drop your CSV file here or choose one below. See <a href="https://help.uber.com/business/article/downloading-activity-reports?nodeId=b80b35dc-bfb9-428b-88c6-f7af84e7eea5">Uber's guide</a> for help downloading the CSV.</p>
+      <div id="dropZone" class="box has-text-centered has-background-white mb-5">
+        <p class="mb-4">Drop your CSV file here or choose one below. See <a
+            class="is-underlined has-text-weight-semibold"
+            href="https://help.uber.com/business/article/downloading-activity-reports?nodeId=b80b35dc-bfb9-428b-88c6-f7af84e7eea5">Uber's
+            guide</a> for help downloading the CSV.</p>
         <div class="file is-boxed is-centered has-name">
           <label class="file-label">
             <input id="fileInput" class="file-input" type="file" accept=".csv,text/csv">
@@ -27,24 +34,24 @@
         </div>
       </div>
 
-      <article id="statusMessage" class="message is-info is-light is-hidden">
+      <article id="statusMessage" class="message is-info is-light is-hidden mb-5">
         <div class="message-body"></div>
       </article>
 
       <div id="dashboard" class="is-hidden">
-        <div class="columns is-multiline" id="kpiCards"></div>
+        <div class="columns is-multiline mb-2" id="kpiCards"></div>
 
         <div class="columns is-variable is-5">
-          <div class="column is-4">
+          <div class="column is-4-tablet is-3-desktop">
             <div class="box">
               <h2 class="title is-5">Days</h2>
-              <div id="dayList" class="menu"></div>
+              <nav id="dayList" class="panel"></nav>
             </div>
           </div>
 
-          <div class="column is-8">
-            <div class="box">
-              <div class="level">
+          <div class="column is-8-tablet is-9-desktop">
+            <div class="box mb-5">
+              <div class="level is-mobile">
                 <div class="level-left">
                   <h2 id="selectedDayTitle" class="title is-5 mb-0">Select a day</h2>
                 </div>
@@ -53,24 +60,38 @@
                 </div>
               </div>
 
-              <div id="daySummary" class="columns is-mobile is-multiline mb-4"></div>
+              <div id="daySummary" class="columns is-mobile is-multiline"></div>
+            </div>
 
+            <div class="box mb-5">
+              <h3 class="title is-6">Map</h3>
               <div id="mapLoading" class="notification is-info is-light is-hidden mb-4">
                 <p id="mapLoadingText" class="mb-2"><strong>Mapping routes...</strong></p>
                 <progress class="progress is-info is-small" max="100">Loading</progress>
               </div>
 
               <div id="map" style="height: 420px;"></div>
+            </div>
 
-              <div id="dayTrips" class="table-container mt-5"></div>
+            <div class="box">
+              <h3 class="title is-6">Trips</h3>
+              <div id="dayTrips" class="table-container"></div>
             </div>
           </div>
         </div>
       </div>
+
+      <footer class="footer" style="--bulma-footer-padding: 3rem 1.5rem;">
+        <div class="content has-text-centered">
+          <p>Project source: <a class="is-underlined has-text-weight-semibold" href="https://github.com/Niek/uber-dash"
+              target="_blank" rel="noopener noreferrer">github.com/Niek/uber-dash</a></p>
+        </div>
+      </footer>
     </div>
-  </section>
+  </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
   <script src="./app.js"></script>
 </body>
+
 </html>

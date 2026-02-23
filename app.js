@@ -454,10 +454,10 @@ function renderKpis() {
   ];
 
   dom.kpiCards.innerHTML = cards.map((card) => `
-    <div class="column is-6-mobile is-3-desktop">
+    <div class="column is-6-mobile is-3-tablet">
       <div class="box has-text-centered">
         <p class="heading">${escapeHtml(card.label)}</p>
-        <p class="title is-4">${escapeHtml(card.value)}</p>
+        <p class="title is-3-desktop is-4-tablet is-5-mobile">${escapeHtml(card.value)}</p>
       </div>
     </div>
   `).join("");
@@ -469,21 +469,16 @@ function renderDayList() {
   const items = [...state.tripsByDay.values()].map((day) => {
     const isActive = day.dateKey === state.selectedDay;
     return `
-      <li>
-        <a class="${isActive ? "is-active" : ""}" data-day="${day.dateKey}">
+      <a class="panel-block ${isActive ? "is-active" : ""}" data-day="${day.dateKey}">
+        <span class="is-flex is-justify-content-space-between is-align-items-center is-flex-grow-1">
           <span>${formatDay(day.dateKey)}</span>
-          <span class="tag is-info">${day.trips.length} trips</span>
-        </a>
-      </li>
+          <span class="tag is-info is-light">${day.trips.length} trips</span>
+        </span>
+      </a>
     `;
   }).join("");
 
-  dom.dayList.innerHTML = `
-    <p class="menu-label">Trip Days</p>
-    <ul class="menu-list">
-      ${items}
-    </ul>
-  `;
+  dom.dayList.innerHTML = items;
 
   dom.dayList.querySelectorAll("a[data-day]").forEach((link) => {
     link.addEventListener("click", () => {
@@ -537,7 +532,7 @@ function renderDaySummary(day) {
   ];
 
   dom.daySummary.innerHTML = cards.map((card) => `
-    <div class="column is-4">
+    <div class="column is-12-mobile is-4-tablet">
       <div class="box has-text-centered py-4 px-3">
         <p class="heading">${escapeHtml(card.label)}</p>
         <p class="title is-5">${escapeHtml(card.value)}</p>
@@ -561,30 +556,30 @@ function renderDayTrips(day) {
 
     return `
       <tr data-trip-id="${escapeHtml(trip.id)}">
-        <td>${tripNumber}</td>
+        <td class="has-text-right">${tripNumber}</td>
         <td>${escapeHtml(trip.time)}</td>
         <td>${escapeHtml(trip.service)}</td>
         <td>${escapeHtml(trip.city)}</td>
         <td>${escapeHtml(trip.pickup)}</td>
         <td>${escapeHtml(trip.dropoff)}</td>
         <td>${escapeHtml(transactionSummary)}</td>
-        <td>${escapeHtml(formatCurrency(trip.totalEur, "EUR"))}</td>
+        <td class="has-text-right">${escapeHtml(formatCurrency(trip.totalEur, "EUR"))}</td>
       </tr>
     `;
   }).join("");
 
   dom.dayTrips.innerHTML = `
-    <table class="table is-fullwidth is-striped is-hoverable is-size-7-mobile">
+    <table class="table is-fullwidth is-striped is-hoverable is-narrow is-size-7-mobile">
       <thead>
         <tr>
-          <th>#</th>
+          <th class="has-text-right">#</th>
           <th>Time (UTC)</th>
           <th>Service</th>
           <th>City</th>
           <th>Pickup</th>
           <th>Drop-off</th>
           <th>Transactions</th>
-          <th>Total EUR</th>
+          <th class="has-text-right">Total EUR</th>
         </tr>
       </thead>
       <tbody>
