@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uber Trips Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/1.0.4/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+</head>
+<body>
+  <section id="appRoot" class="section">
+    <div class="container">
+      <h1 class="title">Uber Trips Dashboard</h1>
+      <p class="subtitle">Upload your Uber trips CSV to explore daily activity and routes.</p>
+
+      <div id="dropZone" class="box has-text-centered has-background-white">
+        <p class="mb-4">Drop your CSV file here or choose one below.</p>
+        <div class="file is-boxed is-centered has-name">
+          <label class="file-label">
+            <input id="fileInput" class="file-input" type="file" accept=".csv,text/csv">
+            <span class="file-cta">
+              <span class="file-icon">CSV</span>
+              <span class="file-label">Choose CSV…</span>
+            </span>
+            <span id="fileName" class="file-name">No file selected</span>
+          </label>
+        </div>
+      </div>
+
+      <article id="statusMessage" class="message is-info is-light is-hidden">
+        <div class="message-body"></div>
+      </article>
+
+      <div id="dashboard" class="is-hidden">
+        <div class="columns is-multiline" id="kpiCards"></div>
+
+        <div class="columns is-variable is-5">
+          <div class="column is-4">
+            <div class="box">
+              <h2 class="title is-5">Days</h2>
+              <div id="dayList" class="menu"></div>
+            </div>
+          </div>
+
+          <div class="column is-8">
+            <div class="box">
+              <div class="level">
+                <div class="level-left">
+                  <h2 id="selectedDayTitle" class="title is-5 mb-0">Select a day</h2>
+                </div>
+                <div class="level-right">
+                  <span id="selectedDayMeta" class="tag is-info">No day selected</span>
+                </div>
+              </div>
+
+              <div id="daySummary" class="columns is-mobile is-multiline mb-4"></div>
+
+              <div id="map" style="height: 420px;"></div>
+
+              <div id="dayTrips" class="table-container mt-5"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
